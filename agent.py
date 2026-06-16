@@ -112,7 +112,6 @@ def run_agent(contact_name: str, account_name: str, verbose: bool = False) -> st
             system=SYSTEM_PROMPT,
             tools=TOOLS,
             messages=messages,
-            betas=["web-search-20260209"],
         )
 
         if verbose:
