@@ -7,6 +7,7 @@ Generates research-grounded pre-call briefs for ON24 sales development represent
 import os
 import sys
 import argparse
+import threading
 from datetime import date
 
 import anthropic
@@ -136,6 +137,107 @@ def run_agent(contact_name: str, account_name: str, verbose: bool = False) -> st
     return "Agent stopped unexpectedly."
 
 
+def gui_mode():
+    """Launch a GUI window to enter contact/account and display the brief."""
+    try:
+        import tkinter as tk
+        from tkinter import scrolledtext, messagebox, font as tkfont
+    except ImportError:
+        print("tkinter is not available on this system. Use command-line mode instead.", file=sys.stderr)
+        interactive_mode()
+        return
+
+    root = tk.Tk()
+    root.title("ON24 SDR Pre-Call Brief Agent")
+    root.geometry("780x680")
+    root.resizable(True, True)
+
+    pad = {"padx": 12, "pady": 6}
+
+    header = tk.Label(root, text="ON24 SDR Pre-Call Brief", font=("Helvetica", 16, "bold"))
+    header.pack(**pad)
+
+    form = tk.Frame(root)
+    form.pack(fill="x", **pad)
+
+    tk.Label(form, text="Contact name:", width=14, anchor="w").grid(row=0, column=0, sticky="w", pady=4)
+    contact_var = tk.StringVar()
+    contact_entry = tk.Entry(form, textvariable=contact_var, width=45)
+    contact_entry.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+    tk.Label(form, text="Account name:", width=14, anchor="w").grid(row=1, column=0, sticky="w", pady=4)
+    account_var = tk.StringVar()
+    account_entry = tk.Entry(form, textvariable=account_var, width=45)
+    account_entry.grid(row=1, column=1, sticky="ew", padx=(6, 0))
+
+    form.columnconfigure(1, weight=1)
+
+    status_var = tk.StringVar(value="")
+    status_label = tk.Label(root, textvariable=status_var, fg="gray")
+    status_label.pack()
+
+    generate_btn = tk.Button(root, text="Generate Brief", width=20)
+    generate_btn.pack(pady=(0, 8))
+
+    mono = tkfont.Font(family="Courier", size=10)
+    output = scrolledtext.ScrolledText(root, font=mono, wrap="word", state="disabled")
+    output.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+    copy_btn = tk.Button(root, text="Copy to clipboard", state="disabled")
+    copy_btn.pack(pady=(0, 10))
+
+    def do_copy():
+        root.clipboard_clear()
+        root.clipboard_append(output.get("1.0", tk.END).strip())
+        copy_btn.config(text="Copied!")
+        root.after(2000, lambda: copy_btn.config(text="Copy to clipboard"))
+
+    copy_btn.config(command=do_copy)
+
+    def set_output(text):
+        output.config(state="normal")
+        output.delete("1.0", tk.END)
+        output.insert(tk.END, text)
+        output.config(state="disabled")
+
+    def on_generate():
+        contact = contact_var.get().strip()
+        account = account_var.get().strip()
+        if not contact or not account:
+            messagebox.showwarning("Missing input", "Please enter both a contact name and account name.")
+            return
+
+        generate_btn.config(state="disabled", text="Researching...")
+        copy_btn.config(state="disabled")
+        status_var.set(f"Researching {contact} at {account}...")
+        set_output("")
+
+        def worker():
+            try:
+                brief = run_agent(contact, account)
+                root.after(0, lambda: finish(brief, None))
+            except Exception as exc:
+                root.after(0, lambda: finish(None, exc))
+
+        def finish(brief, error):
+            generate_btn.config(state="normal", text="Generate Brief")
+            if error:
+                status_var.set("Error - see message")
+                messagebox.showerror("Error", str(error))
+            else:
+                status_var.set("Done.")
+                set_output(brief)
+                copy_btn.config(state="normal")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    generate_btn.config(command=on_generate)
+    contact_entry.focus()
+    root.bind("<Return>", lambda e: on_generate())
+
+    root.mainloop()
+
+
 def interactive_mode():
     """Run the agent as an interactive chat-style session."""
     print("ON24 SDR Pre-Call Brief Agent")
@@ -172,7 +274,7 @@ def main():
         epilog=(
             "Run with no arguments for interactive mode.\n\n"
             "Examples:\n"
-            '  python agent.py\n'
+            '  python agent.py --gui\n'
             '  python agent.py "Sarah Chen" "HubSpot"\n'
             '  python agent.py "Marcus Webb" "Salesforce" --verbose\n'
             '  python agent.py "Priya Sharma" "Zendesk" --output brief.txt'
@@ -180,6 +282,9 @@ def main():
     )
     parser.add_argument("contact", nargs="?", help="Full name of the contact")
     parser.add_argument("account", nargs="?", help="Name of the account/company")
+    parser.add_argument(
+        "--gui", "-g", action="store_true", help="Open the graphical popup interface"
+    )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Show search queries as they run"
     )
@@ -192,6 +297,10 @@ def main():
     if not ANTHROPIC_API_KEY:
         print("Error: ANTHROPIC_API_KEY environment variable not set.", file=sys.stderr)
         sys.exit(1)
+
+    if args.gui:
+        gui_mode()
+        return
 
     if not args.contact and not args.account:
         interactive_mode()
