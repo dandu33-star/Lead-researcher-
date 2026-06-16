@@ -21,17 +21,15 @@ Every fact in the output is sourced from live web research. The agent never inve
 pip install -r requirements.txt
 ```
 
-### 2. Get API keys
+### 2. Get your Anthropic API key
 
-**Anthropic API key** - https://console.anthropic.com
-
-**Tavily API key** (free tier available) - https://app.tavily.com
+Sign up at https://console.anthropic.com and create an API key. That is the only key you need.
 
 ### 3. Configure environment
 
 ```bash
 cp .env.example .env
-# Edit .env and add your keys
+# Edit .env and add your Anthropic API key
 ```
 
 ## Usage
@@ -56,13 +54,18 @@ python agent.py "Sarah Chen" "HubSpot"
 # Watch searches run, then save brief to file
 python agent.py "Marcus Webb" "Salesforce" --verbose --output marcus_webb_brief.txt
 
+# Interactive mode - prompts for contact and account in a loop
+python agent.py
+
 # Pipe to clipboard (macOS)
 python agent.py "Priya Sharma" "Zendesk" | pbcopy
 ```
 
 ## How it works
 
-The agent uses Claude (claude-sonnet-4-6) with tool use. It runs multiple targeted web searches - contact LinkedIn, company news, marketing org signals, job postings, virtual event history - then synthesises everything into the brief format. If information cannot be sourced, it says so rather than guessing.
+The agent uses Claude (claude-sonnet-4-6) with Anthropic's built-in web search tool. It runs multiple targeted searches - contact LinkedIn, company news, marketing org signals, job postings, virtual event history - then synthesises everything into the brief format. If information cannot be sourced, it says so rather than guessing.
+
+No external search API is needed. The only credential required is an Anthropic API key.
 
 Typical runtime: 30-60 seconds depending on how much public information is available.
 

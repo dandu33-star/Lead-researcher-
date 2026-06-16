@@ -6,18 +6,15 @@ Generates research-grounded pre-call briefs for ON24 sales development represent
 
 import os
 import sys
-import json
 import argparse
 from datetime import date
 
 import anthropic
-import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 SYSTEM_PROMPT = f"""You are an AI sales-research agent for ON24 SDRs. Your job is to take a Contact Name and Account Name and produce a complete pre-call brief that an ON24 SDR can read in 90 seconds and use to make a confident first call or send a personalised email.
 
@@ -87,67 +84,8 @@ SOURCES
 If you cannot find meaningful information on either the contact or the account after searching, say so clearly in the relevant section. Never pad the brief with generic marketing statements that are not grounded in research."""
 
 
-def web_search(query: str, max_results: int = 5) -> str:
-    """Execute a web search using the Tavily API."""
-    if not TAVILY_API_KEY:
-        return "Error: TAVILY_API_KEY not configured."
-
-    try:
-        response = requests.post(
-            "https://api.tavily.com/search",
-            json={
-                "api_key": TAVILY_API_KEY,
-                "query": query,
-                "max_results": max_results,
-                "include_raw_content": False,
-                "include_answer": True,
-                "search_depth": "advanced",
-            },
-            timeout=20,
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        parts = []
-        if data.get("answer"):
-            parts.append(f"Summary: {data['answer']}\n")
-
-        for r in data.get("results", []):
-            parts.append(f"Source: {r.get('url', 'unknown')}")
-            parts.append(f"Title: {r.get('title', '')}")
-            parts.append(f"Content: {r.get('content', '')}\n")
-
-        return "\n".join(parts) if parts else "No results found."
-
-    except requests.RequestException as e:
-        return f"Search error: {e}"
-
-
 TOOLS = [
-    {
-        "name": "web_search",
-        "description": (
-            "Search the web for information about a person, company, or topic. "
-            "Use specific queries to find LinkedIn profiles, company news, press releases, "
-            "marketing strategies, job postings, virtual event programmes, and earnings calls. "
-            "Run multiple searches with different queries to build a complete picture."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query. Be specific - include names, company, and context.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Number of results to return (1-10). Default 5.",
-                    "default": 5,
-                },
-            },
-            "required": ["query"],
-        },
-    }
+    {"type": "web_search_20260209", "name": "web_search"}
 ]
 
 
@@ -173,39 +111,27 @@ def run_agent(contact_name: str, account_name: str, verbose: bool = False) -> st
             system=SYSTEM_PROMPT,
             tools=TOOLS,
             messages=messages,
+            betas=["web-search-20260209"],
         )
+
+        if verbose:
+            for block in response.content:
+                if getattr(block, "type", None) == "tool_use":
+                    query = getattr(block, "input", {}).get("query", "")
+                    if query:
+                        print(f"  [search] {query}", file=sys.stderr)
 
         if response.stop_reason == "end_turn":
             for block in response.content:
-                if block.type == "text":
+                if getattr(block, "type", None) == "text":
                     return block.text
             return "No brief generated."
 
-        if response.stop_reason == "tool_use":
+        if response.stop_reason == "pause_turn":
             messages.append({"role": "assistant", "content": response.content})
+            continue
 
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    if verbose:
-                        print(f"  [search] {block.input.get('query', '')}", file=sys.stderr)
-
-                    result = web_search(
-                        query=block.input["query"],
-                        max_results=block.input.get("max_results", 5),
-                    )
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        }
-                    )
-
-            messages.append({"role": "user", "content": tool_results})
-
-        else:
-            break
+        break
 
     return "Agent stopped unexpectedly."
 
@@ -265,10 +191,6 @@ def main():
 
     if not ANTHROPIC_API_KEY:
         print("Error: ANTHROPIC_API_KEY environment variable not set.", file=sys.stderr)
-        sys.exit(1)
-
-    if not TAVILY_API_KEY:
-        print("Error: TAVILY_API_KEY environment variable not set.", file=sys.stderr)
         sys.exit(1)
 
     if not args.contact and not args.account:
