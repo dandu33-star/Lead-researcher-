@@ -210,19 +210,50 @@ def run_agent(contact_name: str, account_name: str, verbose: bool = False) -> st
     return "Agent stopped unexpectedly."
 
 
+def interactive_mode():
+    """Run the agent as an interactive chat-style session."""
+    print("ON24 SDR Pre-Call Brief Agent")
+    print("Type a contact and account to research, or 'quit' to exit.\n")
+
+    while True:
+        try:
+            contact = input("Contact name: ").strip()
+            if contact.lower() in ("quit", "exit", "q"):
+                break
+            if not contact:
+                continue
+
+            account = input("Account name: ").strip()
+            if account.lower() in ("quit", "exit", "q"):
+                break
+            if not account:
+                continue
+
+            print(f"\nResearching {contact} at {account}...\n")
+            brief = run_agent(contact, account, verbose=True)
+            print("\n" + brief + "\n")
+            print("-" * 60 + "\n")
+
+        except (KeyboardInterrupt, EOFError):
+            print("\nGoodbye.")
+            break
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="ON24 SDR Pre-Call Brief Agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
+            "Run with no arguments for interactive mode.\n\n"
             "Examples:\n"
+            '  python agent.py\n'
             '  python agent.py "Sarah Chen" "HubSpot"\n'
             '  python agent.py "Marcus Webb" "Salesforce" --verbose\n'
             '  python agent.py "Priya Sharma" "Zendesk" --output brief.txt'
         ),
     )
-    parser.add_argument("contact", help="Full name of the contact")
-    parser.add_argument("account", help="Name of the account/company")
+    parser.add_argument("contact", nargs="?", help="Full name of the contact")
+    parser.add_argument("account", nargs="?", help="Name of the account/company")
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Show search queries as they run"
     )
@@ -239,6 +270,13 @@ def main():
     if not TAVILY_API_KEY:
         print("Error: TAVILY_API_KEY environment variable not set.", file=sys.stderr)
         sys.exit(1)
+
+    if not args.contact and not args.account:
+        interactive_mode()
+        return
+
+    if not args.contact or not args.account:
+        parser.error("Provide both a contact name and account name, or neither for interactive mode.")
 
     if args.verbose:
         print(f"Researching {args.contact} at {args.account}...\n", file=sys.stderr)
